@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSocket } from '@/lib/socket-context';
 import { ChatWindow } from '@/components/ChatWindow';
 import Link from 'next/link';
-import { LogOut, MessageSquare, Plus, Settings } from 'lucide-react';
+import { LogOut, MessageSquare, Plus, Settings, Share, Search, UserPlus, Loader2 } from 'lucide-react';
 
 interface Chat {
   id: string;
@@ -29,8 +29,11 @@ interface AuthData {
   token: string;
 }
 
-export default function ChatPage() {
+function ChatContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteParam = searchParams.get('invite');
+
   const { socket, isConnected, connect } = useSocket();
   const [authData, setAuthData] = useState<AuthData | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -39,6 +42,12 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // User search states
+  const [searchPhone, setSearchPhone] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
 
   // Load auth data and initialize
   useEffect(() => {
@@ -67,23 +76,23 @@ export default function ChatPage() {
 
     // Fetch chats
     fetchChats(auth.token).then(() => {
-      // Handle pending invite or current URL invite
+      // Handle pending invite from localStorage on mount
       if (typeof window !== 'undefined') {
-        const urlParams = new URLSearchParams(window.location.search);
-        let invite = urlParams.get('invite');
         const pendingInvite = localStorage.getItem('pending_invite');
-
         if (pendingInvite) {
-          invite = pendingInvite;
           localStorage.removeItem('pending_invite');
-        }
-
-        if (invite) {
-          handleSelectUserByInviteLink(invite, auth.token, auth.userId, auth.username);
+          handleSelectUserByInviteLink(pendingInvite, auth.token, auth.userId, auth.username);
         }
       }
     });
   }, [router, socket, isConnected, connect]);
+
+  // Handle invite parameter changes dynamically (when app is already open)
+  useEffect(() => {
+    if (!authData || !inviteParam) return;
+    console.log('[Chat] Dynamically handling invite link change for:', inviteParam);
+    handleSelectUserByInviteLink(inviteParam, authData.token, authData.userId, authData.username);
+  }, [inviteParam, authData]);
 
   // Listen for real-time new chats via socket
   useEffect(() => {
@@ -173,6 +182,62 @@ export default function ChatPage() {
     }
   };
 
+  const handleSearchUsers = async (phone: string) => {
+    if (!phone.trim()) {
+      setSearchResults([]);
+      setSearchError('');
+      return;
+    }
+    
+    setIsSearching(true);
+    setSearchError('');
+    try {
+      const response = await fetch(`/api/users/search?phone=${encodeURIComponent(phone.trim())}`, {
+        headers: { Authorization: `Bearer ${authData?.token}` },
+      });
+      if (!response.ok) throw new Error('Failed to search');
+      const data = await response.json();
+      setSearchResults(data.users || []);
+      if ((data.users || []).length === 0) {
+        setSearchError('No users found with this phone number');
+      }
+    } catch (err) {
+      console.error('Error searching users:', err);
+      setSearchError('Failed to search. Please try again.');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleAddContact = async (recipientId: string) => {
+    if (!authData) return;
+    await handleSelectUserByInviteLink(recipientId, authData.token, authData.userId, authData.username);
+    setShowNewChat(false);
+    setSearchPhone('');
+    setSearchResults([]);
+    setSearchError('');
+  };
+
+  const handleShareLink = async () => {
+    if (!authData) return;
+    const link = `${window.location.origin}/chat?invite=${authData.userId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join me on HAKA',
+          text: 'Let\'s chat securely on HAKA! Click my invite link to connect:',
+          url: link,
+        });
+      } catch (err) {
+        console.log('Error sharing:', err);
+      }
+    } else {
+      navigator.clipboard.writeText(link);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
   const fetchChats = async (token: string) => {
     try {
       const response = await fetch('/api/chats', {
@@ -182,7 +247,6 @@ export default function ChatPage() {
       if (!response.ok) throw new Error('Failed to fetch chats');
 
       const data = await response.json();
-      // TODO: Populate with real recipient names
       setChats(data.chats || []);
     } catch (error) {
       console.error('Error fetching chats:', error);
@@ -203,7 +267,7 @@ export default function ChatPage() {
 
   if (!authData) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-[100dvh]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
           <p className="text-foreground/50">Loading...</p>
@@ -213,7 +277,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-[100dvh] bg-background overflow-hidden">
       {/* Sidebar */}
       <div className={`w-full md:w-80 border-r border-border flex flex-col bg-card ${selectedChat ? 'hidden md:flex' : 'flex'}`}>
         {/* Header */}
@@ -247,7 +311,14 @@ export default function ChatPage() {
         {/* New Chat Button */}
         <div className="p-4 border-b border-border">
           <button
-            onClick={() => setShowNewChat(!showNewChat)}
+            onClick={() => {
+              setShowNewChat(!showNewChat);
+              if (showNewChat) {
+                setSearchPhone('');
+                setSearchResults([]);
+                setSearchError('');
+              }
+            }}
             className="w-full bg-gradient-to-r from-primary to-accent hover:shadow-lg hover:shadow-primary/20 text-white font-semibold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 active:scale-95"
           >
             <Plus className="w-5 h-5" />
@@ -257,7 +328,7 @@ export default function ChatPage() {
 
         {/* New Chat Invite & Search */}
         {showNewChat && (
-          <div className="p-4 border-b border-border bg-background/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="p-4 border-b border-border bg-background/50 space-y-4 overflow-y-auto max-h-[300px] animate-in fade-in slide-in-from-top-2 duration-300">
             {/* Share Invite Link Card */}
             <div className="bg-card border border-border rounded-xl p-3.5 space-y-2.5 shadow-sm">
               <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wider">Your Invite Link</p>
@@ -266,7 +337,7 @@ export default function ChatPage() {
                   type="text"
                   readOnly
                   value={typeof window !== 'undefined' ? `${window.location.origin}/chat?invite=${authData.userId}` : ''}
-                  className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-xs text-foreground/60 select-all overflow-ellipsis"
+                  className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-xs text-foreground/60 select-all overflow-ellipsis min-w-0"
                 />
                 <button
                   onClick={() => {
@@ -275,12 +346,78 @@ export default function ChatPage() {
                     setCopiedLink(true);
                     setTimeout(() => setCopiedLink(false), 2000);
                   }}
-                  className="px-3 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center min-w-[70px]"
+                  className="px-3 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center min-w-[60px]"
                 >
                   {copiedLink ? 'Copied!' : 'Copy'}
                 </button>
+                <button
+                  onClick={handleShareLink}
+                  className="p-2 bg-accent text-white rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center"
+                  title="Share natively"
+                >
+                  <Share className="w-4 h-4" />
+                </button>
               </div>
-              <p className="text-[10px] text-foreground/40">Share this link with a friend. Clicking it will automatically add you as a contact and start a chat!</p>
+              <p className="text-[10px] text-foreground/40">
+                Share this link with a friend. Clicking it will automatically add you as a contact and start a chat! 
+                {typeof window !== 'undefined' && window.location.hostname.includes('localhost') && (
+                  <span className="block mt-1 text-yellow-500/80">
+                    ⚠️ Note: Since you're running locally, make sure to access via your local IP address so other devices can open the link.
+                  </span>
+                )}
+              </p>
+            </div>
+
+            {/* Search Friend by Phone Card */}
+            <div className="bg-card border border-border rounded-xl p-3.5 space-y-2.5 shadow-sm">
+              <p className="text-xs font-semibold text-foreground/50 uppercase tracking-wider">Search Friend by Phone</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="e.g. +15550000000"
+                  value={searchPhone}
+                  onChange={(e) => {
+                    setSearchPhone(e.target.value);
+                    if (searchError) setSearchError('');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSearchUsers(searchPhone);
+                  }}
+                  className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-w-0"
+                />
+                <button
+                  onClick={() => handleSearchUsers(searchPhone)}
+                  disabled={isSearching || !searchPhone.trim()}
+                  className="px-3 py-2 bg-primary text-white text-xs font-semibold rounded-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center gap-1 disabled:opacity-50 min-w-[70px]"
+                >
+                  {isSearching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  Search
+                </button>
+              </div>
+
+              {searchError && (
+                <p className="text-[10px] text-red-500 font-medium">{searchError}</p>
+              )}
+
+              {searchResults.length > 0 && (
+                <div className="space-y-1.5 pt-1.5 border-t border-border/50">
+                  {searchResults.map((user) => (
+                    <div key={user.id} className="flex items-center justify-between p-2 rounded-lg bg-background hover:bg-muted/30 transition-colors gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-foreground truncate">{user.username}</p>
+                        <p className="text-[10px] text-foreground/50 truncate">{user.phone_number}</p>
+                      </div>
+                      <button
+                        onClick={() => handleAddContact(user.id)}
+                        className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-all active:scale-90 flex-shrink-0"
+                        title="Add Contact & Chat"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -360,5 +497,20 @@ export default function ChatPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-[100dvh] bg-background">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+          <p className="text-foreground/50">Loading application...</p>
+        </div>
+      </div>
+    }>
+      <ChatContent />
+    </Suspense>
   );
 }

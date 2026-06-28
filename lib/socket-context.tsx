@@ -13,6 +13,29 @@ interface SocketContextType {
   disconnect: () => void;
 }
 
+function resolveSocketUrl(configuredUrl: string): string {
+  if (typeof window === 'undefined') return configuredUrl;
+
+  const { protocol, hostname } = window.location;
+  const isHttps = protocol === 'https:';
+
+  let url = configuredUrl;
+
+  // 1. If configured URL points to localhost and we are accessing from somewhere else on local network
+  if (url.includes('localhost') && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    url = url.replace('localhost', hostname);
+    console.log(`[Socket] Rewriting localhost socket URL to match current hostname: ${url}`);
+  }
+
+  // 2. Handle HTTPS/Mixed Content restriction: if page is HTTPS, socket must be secure (https/wss)
+  if (isHttps) {
+    url = url.replace(/^http:/i, 'https:');
+    url = url.replace(/^ws:/i, 'wss:');
+  }
+
+  return url;
+}
+
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
@@ -31,8 +54,11 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       socket.disconnect();
     }
 
+    const resolvedUrl = resolveSocketUrl(process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001');
+    console.log('[Socket] Connecting to url:', resolvedUrl);
+
     const newSocket = io(
-      process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001',
+      resolvedUrl,
       {
         auth: {
           token: newToken,
