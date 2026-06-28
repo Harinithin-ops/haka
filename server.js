@@ -79,7 +79,7 @@ const typingUsers = new Map(); // chatId -> Set of userId
 // JWT verification middleware
 const verifyJWT = (token) => {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-key-change-in-production');
+    return jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-key');
   } catch (error) {
     console.error('[Socket] JWT verification failed:', error.message);
     return null;
