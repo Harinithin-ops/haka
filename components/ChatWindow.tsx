@@ -519,6 +519,11 @@ export function ChatWindow({
       );
     });
 
+    socket.on('error', (data: { message?: string }) => {
+      console.error('[Socket] Server error:', data?.message);
+      toast.error(data?.message || 'Server error occurred');
+    });
+
     return () => {
       socket.off('receive_message');
       socket.off('message_sent_ack');
@@ -528,6 +533,7 @@ export function ChatWindow({
       socket.off('user_typing');
       socket.off('message_edited');
       socket.off('message_deleted');
+      socket.off('error');
       document.removeEventListener('mousedown', handleOutsideClick);
     };
   }, [socket, chatId, recipientId, recipientName, currentUserSecretKey, recipientPublicKey]);

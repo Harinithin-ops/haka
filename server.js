@@ -45,9 +45,12 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: (origin, callback) => {
+      // Allow all origins dynamically to support local dev, local network IPs, tunnels (Pinggy), and Vercel deployments
+      callback(null, true);
+    },
     methods: ['GET', 'POST'],
-    credentials: false,
+    credentials: true,
   },
   transports: ['polling', 'websocket'],
   allowEIO3: true,
@@ -57,7 +60,10 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(express.json());
-app.use(cors({ origin: '*' }));
+app.use(cors({
+  origin: (origin, callback) => callback(null, true),
+  credentials: true
+}));
 
 // Supabase client
 const supabase = createClient(

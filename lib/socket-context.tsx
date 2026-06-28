@@ -33,6 +33,11 @@ function resolveSocketUrl(configuredUrl: string): string {
     url = url.replace(/^ws:/i, 'wss:');
   }
 
+  // Diagnostic warning for invalid Vercel configurations
+  if (url.includes('vercel.app') && url.includes(':3001')) {
+    console.warn('[Socket] ⚠️ WARNING: Socket URL points to a vercel.app domain on port 3001. Since Vercel is serverless, this connection will fail. Please deploy the Socket.io server to Render/Railway and set NEXT_PUBLIC_SOCKET_URL.');
+  }
+
   return url;
 }
 
@@ -85,11 +90,12 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
 
     let connectAttempts = 0;
     newSocket.on('connect_error', (error: Error) => {
+      console.error('[Socket] Connection error details:', error.message);
       connectAttempts++;
       if (connectAttempts === 1) {
-        console.warn('[Socket] Connecting to server... (will retry automatically)');
+        console.warn(`[Socket] Connecting to server failed: ${error.message} (will retry automatically)`);
       } else if (connectAttempts % 5 === 0) {
-        console.warn(`[Socket] Still trying to connect (attempt ${connectAttempts}). Is the socket server running on port 3001?`);
+        console.warn(`[Socket] Still trying to connect: ${error.message} (attempt ${connectAttempts}). Is the socket server running and accessible?`);
       }
     });
 
