@@ -587,7 +587,11 @@ export function ChatWindow({
     const fileUrl = customFileUrl || '';
 
     if (type === 'text' && !text.trim()) return;
-    if (!socket || !isConnected || isSending) return;
+    if (!socket || !isConnected) {
+      toast.error('Unable to send. Reconnecting to chat server...');
+      return;
+    }
+    if (isSending) return;
 
     // Handle edit mode
     if (editingMessage && type === 'text') {
@@ -1084,11 +1088,11 @@ export function ChatWindow({
             ref={fileInputRef}
             onChange={handleImageSelect}
             className="hidden"
-            disabled={!isConnected || isSending}
+            disabled={isSending}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={!isConnected || isSending || !!editingMessage}
+            disabled={isSending || !!editingMessage}
             className="p-3 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl disabled:opacity-50 transition-all duration-200 active:scale-95 flex items-center justify-center"
             title="Send image"
           >
@@ -1096,7 +1100,7 @@ export function ChatWindow({
           </button>
           <button
             onClick={() => setShowPicker(!showPicker)}
-            disabled={!isConnected || isSending || !!editingMessage}
+            disabled={isSending || !!editingMessage}
             className={`p-3 rounded-xl disabled:opacity-50 transition-all duration-200 active:scale-95 flex items-center justify-center ${
               showPicker ? 'bg-primary text-white shadow-sm' : 'bg-primary/10 hover:bg-primary/20 text-primary'
             }`}
@@ -1113,7 +1117,7 @@ export function ChatWindow({
               value={inputValue}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              disabled={!isConnected || isSending}
+              disabled={isSending}
               className={`w-full px-4 py-3 pl-4 pr-12 bg-background border rounded-2xl focus:outline-none focus:ring-2 focus:border-transparent disabled:opacity-50 transition-all placeholder:text-foreground/40 text-foreground ${
                 editingMessage ? 'border-yellow-400/50 focus:ring-yellow-400' : 'border-border focus:ring-primary'
               }`}
@@ -1126,7 +1130,7 @@ export function ChatWindow({
           </div>
           <button
             onClick={() => handleSendMessage()}
-            disabled={!inputValue.trim() || !isConnected || isSending}
+            disabled={!inputValue.trim() || isSending}
             className={`p-3 text-white rounded-full hover:shadow-lg hover:scale-105 disabled:bg-muted disabled:text-foreground/40 disabled:cursor-not-allowed transition-all duration-200 active:scale-95 ${
               editingMessage ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gradient-to-r from-primary to-accent'
             }`}
